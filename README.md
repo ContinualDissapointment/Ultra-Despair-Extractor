@@ -23,9 +23,12 @@ legally-owned copy of the game.
 |---|---|
 | `cpk_extract.py` | Unpacks CRIWARE **`.cpk`** archives (incl. CRILAYLA-compressed entries). Works on PC `a1..a5.cpk` and Vita `dso_en.cpk`. |
 | `bnc_to_obj.py` | Converts a model **`.bnc`** file to a Wavefront **`.obj`** mesh. |
+| `btx_dec.py` | Decompresses a **`.btx`** texture container (PC → DDS, Vita → GXT). |
+| `btx_to_png.py` | Converts a **`.btx`** texture to **PNG** (PC DDS path; needs Pillow). |
 | `docs/FORMAT.md` | The reverse-engineered file-format notes. |
 
-Pure Python 3, standard library only — no dependencies to install.
+The model/archive tools are pure Python 3 stdlib. `btx_to_png.py`'s DDS→PNG step
+needs Pillow (`pip install pillow`); the decompression itself is stdlib.
 
 ---
 
@@ -116,11 +119,11 @@ This is a checkpoint, not a finished product. Known gaps:
 
 ## Roadmap
 
-1. Generalize the complex-format decoder (per-model parameter detection) → the
-   remaining ~441 models.
-2. UV coordinates.
-3. `.btx` / GXT texture extraction and material assignment.
-4. Batch-export the whole roster.
+1. ~~`.btx` texture decoding~~ — **done** (`btx_dec.py` / `btx_to_png.py`).
+2. **UV coordinates** — needed to actually apply the textures to the meshes
+   (they live in a separate float stream alongside normals).
+3. Material assignment — emit `.mtl` pairing each mesh to its texture(s).
+4. Multi-*node* models (corpse piles / effects) and a full batch export.
 
 ---
 
@@ -144,6 +147,16 @@ We stand on a lot of shoulders. This project would not exist without:
   known-good rips were our **answer key**: we matched our decoded vertices and face
   counts against them to *prove* the format was decoded correctly. None of their
   data is redistributed here — it was used solely for verification.
+
+- **BlackDragonHunt / yukinogatari** and **@FireyFly** — they reverse-engineered
+  the `.btx` texture compression (the `fc aa 55 a7` container) in
+  [Danganronpa-Tools](https://github.com/yukinogatari/Danganronpa-Tools)
+  (`dr12ae/dr_dec.py`, WTFPL). `btx_dec.py` here is a Python-3 port of their
+  algorithm. We did **not** crack this ourselves — they did, years ago.
+- **xdanieldzd** — [GXTConvert](https://github.com/xdanieldzd/GXTConvert) and
+  [Scarlet](https://github.com/xdanieldzd/Scarlet) decode the PS Vita **GXT**
+  textures the Vita `.btx` decompress to.
+- **The Textures Resource** — community-ripped UDG textures, useful as a check.
 
 If you contributed any of the above and want different wording or attribution,
 please open an issue.

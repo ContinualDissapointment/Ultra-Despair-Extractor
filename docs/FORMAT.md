@@ -118,3 +118,34 @@ the descriptor / submesh range table) rather than hardcode them.
 Decoding was checked against known-good community reference meshes used purely as an
 answer key: match the decoded vertex set/positions and the face count to the
 reference, and visually confirm in Blender. No reference data is redistributed here.
+
+---
+
+## 3. `.btx` — textures
+
+A `.btx` is a compressed container, magic `FC AA 55 A7`:
+
+- `@0` magic `FC AA 55 A7`
+- `@4` uint32 decompressed size
+- `@8` uint32 compressed size (= file size)
+- `@12` the compressed payload
+
+The compression is a small LZ with four commands (decompress credit:
+BlackDragonHunt & @FireyFly, see README):
+
+| top bits | meaning |
+|---|---|
+| `1xx yyyyy` + 1 byte | copy `xx+4` bytes from output at 13-bit back-offset `y` (saved as the reuse offset) |
+| `011 xxxxx` | copy `x` more bytes reusing the previous offset |
+| `0100 xxxx` (+ext) + 1 byte | write `count+4` copies of the next byte (a run) |
+| `000 xxxxx` / `001 …` (+ext) | copy `x` raw literal bytes from the input |
+
+Decompressed payload:
+- **PC** → a `DDS1` tag then a standard **DDS** (DXT1 / DXT5).
+- **Vita** → a **GXT** (PS Vita texture); these may be double-wrapped (`GX3\0`),
+  decompress again. Decode the GXT with GXTConvert / Scarlet.
+
+Implemented in [`../btx_dec.py`](../btx_dec.py) and [`../btx_to_png.py`](../btx_to_png.py).
+
+> Applying textures to meshes still needs **UV coordinates**, which live in a
+> separate float stream (alongside normals) and are not yet exported.
