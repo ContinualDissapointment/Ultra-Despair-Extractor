@@ -93,24 +93,27 @@ decoding — none of that data is included here).
 
 Models come in two geometry encodings (see [`docs/FORMAT.md`](docs/FORMAT.md)):
 
-- **Simple format** — `bnc_to_obj.py` handles these today. On the first archive's
-  character/prop set (`a1`, 947 models), **~267 export cleanly** right now, plus
-  more across the other archives. Run it and check the result in Blender.
-- **Complex format** — the structure is now **cracked and validated**: a complex
-  test model (the in-game shield) extracts to a mesh whose bounding box matches a
-  known-good reference rip on **all three axes**. What's left is making the decoder
-  pick the per-model parameters automatically so this rolls out to the remaining
-  ~441 models — that's in progress.
+- **Simple format** — `bnc_to_obj.py` handles these. Several hundred `a1`
+  character/prop models produce geometry that passes an automated edge-sanity check.
+  **That check is not a correctness guarantee.** A sample (e.g. the helmet, shield,
+  wings) were confirmed correct in Blender / against reference rips; the full set
+  has *not* been visually verified — treat counts as "looks plausible," not "known
+  good," and check each model you use.
+- **Complex format** — appears worked out, but only spot-confirmed: a few models
+  decode correctly, including the **shield** (32v / 52f, bounding box matching a
+  reference rip on all three axes) and a couple others confirmed by eye. Whether
+  it's correct across the whole roster is **not yet confirmed**.
 
 ## Limitations
 
 This is a checkpoint, not a finished product. Known gaps:
 
-- **~Half of models (the "complex" format)** don't auto-export yet. The format is
-  understood and validated on a test model; generalizing the per-model parameter
-  detection is the active work.
-- **No UVs / textures yet.** Positions and faces only. UVs (we know where they
-  live) and the `.btx` / GXT texture pipeline are planned.
+- **Correctness is only spot-checked.** Only a handful of models are confirmed
+  against ground truth / by eye; the rest are unverified.
+- **No UVs applied yet.** Geometry exports untextured. `.btx` textures *do* decode
+  to PNG (`btx_to_png.py`), but mapping them needs UVs, which are **not** working
+  yet (see roadmap).
+- **Multi-*node* models** (corpse piles, effects) don't decode cleanly.
 - **PC build only** for the model converter. The Vita `.bnc` is a different (older)
   variant; `cpk_extract.py` already unpacks Vita archives, but `bnc_to_obj.py`
   currently targets the PC layout.
@@ -120,11 +123,12 @@ This is a checkpoint, not a finished product. Known gaps:
 ## Roadmap
 
 1. ~~`.btx` texture decoding~~ — **done** (`btx_dec.py` / `btx_to_png.py`).
-2. **UV coordinates** — *format cracked, parsing in progress.* UVs sit right after
-   the face records as **per-corner triplets** (3 `(u,v)` per face, in face order;
-   U direct, V flipped). Verified exact against a reference rip. The remaining work
-   is parsing the **irregular group padding** (interspersed with `256`/`128` dim
-   markers) so the triplets stay aligned across all faces.
+2. **UV coordinates** — *partially worked out, NOT working yet.* UVs appear to sit
+   after the face records as per-corner triplets (3 `(u,v)` per face; U direct,
+   V flipped) — this **matched a reference rip for the first faces only**. Our
+   parser then **drifts mid-model** because the inter-group padding (interspersed
+   with `256`/`128` markers) isn't parsed correctly. So UV output is currently
+   wrong past the first faces — do not rely on it.
 3. Material assignment — emit `.mtl` pairing each mesh to its `.btx`-derived PNG.
 4. Multi-*node* models (corpse piles / effects) and a full batch export.
 

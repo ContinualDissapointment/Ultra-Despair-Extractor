@@ -84,7 +84,7 @@ A survey of all 947 models shows **two** geometry encodings:
   by the node's four `uint64` section pointers (right after the descriptor):
   `ptr0` = geometry start, last ptr = UV/normal float data.
 
-**Complex layout (validated):** walk the geometry section, alternating
+**Complex layout (spot-checked, not broadly verified):** walk the geometry section, alternating
 **vertex-groups** and **face-record runs**, accumulating vertices into one global
 list; face indices are global across the groups. Each 48-byte record's first four
 uint32 are `a,b,c,d` → triangle `(a,b,c)`, plus a second triangle `(a,c,d)` when
