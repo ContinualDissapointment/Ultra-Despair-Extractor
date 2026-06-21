@@ -79,9 +79,8 @@ def extract(path, out_path, scale=100.0):
         vstart, vcount = vrun
         maxidx = max(max(t) for t in tris) if tris else -1
         if maxidx >= vcount:
-            vcount = maxidx + 1                      # trust the indices
+            continue                                 # faces point past this vertex run -> unreliable chunk, skip
         base = len(verts_all)
-        vcount = min(vcount, (len(d) - vstart) // 16)
         for i in range(vcount):
             o = vstart + i*16
             verts_all.append((f32(d, o+4), f32(d, o+12), -f32(d, o+8)))
