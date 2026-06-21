@@ -58,24 +58,39 @@ def find_vertex_runs(d):
             o += 4
     return runs
 
-def find_faces(d, nv):
-    """48-byte face records, found by the universal 0xffff strip-restart signature.
-    First four uint32 = a,b,c,d -> triangle (a,b,c), plus (a,c,d) when d is a
-    distinct valid index (a quad). Indices are global into the concatenated buffer."""
-    faces = []
-    o = 0
+def _rec_to_tris(d, o, nv, out):
+    """one 48-byte record -> triangle (a,b,c) [+ (a,c,d) if d is a distinct quad corner]."""
+    a, b, c, e = u32(d, o), u32(d, o+4), u32(d, o+8), u32(d, o+12)
+    if a < nv and b < nv and c < nv and len({a, b, c}) == 3:
+        out.append((a, b, c))
+        if e not in (a, b, c) and e < nv:
+            out.append((a, c, e))
+
+def _is_face_rec(d, o, nv):
+    a, b, c, e = u32(d, o), u32(d, o+4), u32(d, o+8), u32(d, o+12)
+    return (max(a, b, c) < nv and len({a, b, c}) == 3 and b'\xff\xff' in d[o+16:o+48])
+
+def find_faces(d, nv, vend, fcount):
+    """Faces are `fcount` 48-byte records. When they sit contiguously right after
+    the vertex block (vend), read exactly those -- this avoids false-positive
+    records elsewhere in the file. Otherwise fall back to a global scan for the
+    universal 0xffff strip-restart signature. Each record's first four uint32 are
+    a,b,c,d -> triangle (a,b,c) plus (a,c,d) when d is a distinct quad corner."""
     N = len(d)
+    valid = sum(1 for i in range(fcount)
+                if vend + i*48 + 48 <= N and _is_face_rec(d, vend + i*48, nv))
+    out = []
+    if fcount and valid / fcount > 0.9:                 # contiguous block after the verts
+        for i in range(fcount):
+            _rec_to_tris(d, vend + i*48, nv, out)
+        return out
+    o = 0                                               # global fallback
     while o + 48 <= N:
-        a, b, c, e = u32(d, o), u32(d, o+4), u32(d, o+8), u32(d, o+12)
-        if max(a, b, c, e) < 60000 and len({a, b, c}) == 3 and b'\xff\xff' in d[o+16:o+48]:
-            if a < nv and b < nv and c < nv:
-                faces.append((a, b, c))
-                if e not in (a, b, c) and e < nv:
-                    faces.append((a, c, e))
-            o += 48
+        if _is_face_rec(d, o, nv) and max(u32(d, o), u32(d, o+4), u32(d, o+8), u32(d, o+12)) < 60000:
+            _rec_to_tris(d, o, nv, out); o += 48
         else:
             o += 4
-    return faces
+    return out
 
 def extract(path, out_path, scale=100.0):
     d = psca_blob(open(path, 'rb').read())
@@ -88,10 +103,12 @@ def extract(path, out_path, scale=100.0):
         # that many (the descriptor count is authoritative; the heuristic run
         # splitter over/under-counts). Face records then index globally into it.
         vcount = u16(d, desc)
+        fcount = u16(d, desc+2)
         geom = min(s for s, _ in runs)
         verts_all = [(f32(d, geom+i*16+4), f32(d, geom+i*16+12), -f32(d, geom+i*16+8))
                      for i in range(vcount)]
-        faces_all = [t for t in find_faces(d, vcount)
+        vend = geom + vcount*16
+        faces_all = [t for t in find_faces(d, vcount, vend, fcount)
                      if all(_finite_v(verts_all[i]) for i in t)]
     with open(out_path, 'w') as fp:
         for x, y, z in verts_all:
