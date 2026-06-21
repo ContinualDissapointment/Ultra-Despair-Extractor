@@ -7,12 +7,13 @@ the original PS Vita build.
 These are **tools only**. They contain no game data. You must supply your own
 legally-owned copy of the game.
 
-> **Status:** early but real. This is, as far as we know, the first working native
-> model extractor for this game — previously the only route was ripping geometry
-> from the GPU (Ninja Ripper / RenderDoc). The vertex + face format is cracked and
-> validated against known-good reference models. Simple single-mesh objects export
-> cleanly today; complex multi-submesh characters are a work in progress (see
-> [Limitations](#limitations)).
+> **Status:** early but real. We are **not the first** to look at this — earlier
+> community work (a model-viewer plugin, forum format threads, and GPU rips) blazed
+> the trail; see [Prior art & acknowledgments](#prior-art--acknowledgments). What's
+> new here is an **open, scriptable native extractor for the PC release** whose
+> format model is documented and validated against known-good reference models.
+> Simple single-mesh objects export cleanly today; complex multi-submesh characters
+> are a work in progress (see [Limitations](#limitations)).
 
 ---
 
@@ -71,8 +72,8 @@ needed in Blender 4), or any 3D app.
 
 A `.bnc` is a `PSCa` container. Inside, each mesh is:
 
-- a **vertex buffer** — 16 bytes per vertex: a 4-byte tag followed by an XYZ
-  position as three 32-bit floats; and
+- a **vertex buffer** — 16 bytes per vertex: a 4-byte tag (skinning: bone
+  index + weights) followed by an XYZ position as three 32-bit floats; and
 - a **face list** — one record per triangle whose first three 32-bit integers are
   the three corner indices.
 
@@ -109,6 +110,32 @@ This is a checkpoint, not a finished product. Known gaps:
 2. UV coordinates.
 3. `.btx` / GXT texture extraction and material assignment.
 4. Batch-export the whole roster.
+
+---
+
+## Prior art & acknowledgments
+
+We stand on a lot of shoulders. This project would not exist without:
+
+- **akderebur** — author of **UniViewer** and its Danganronpa UDG model-viewer
+  plugin. It was the earliest attempt at *natively* parsing this game's models.
+  Even though we couldn't get it running on the PC release, decompiling its parse
+  logic **independently confirmed our format model** (the 16-byte vertex layout,
+  the uint64 section pointers, the uint16 index data, and that the per-vertex tag
+  carries skinning/bone data). Huge credit for being first into this format.
+- **The XeNTaX and VG-Resource forums** — the community threads where the `.bnc` /
+  `.btx` format was first discussed and sample files were shared. The questions
+  asked there (and the dead ends noted) saved us real time.
+- **The Internet Archive** — for preserving those now-defunct forum threads. The
+  XeNTaX forum has shut down; without the Wayback Machine, that knowledge would be
+  gone.
+- **The Models Resource** (and the rippers who contributed UDG models) — their
+  known-good rips were our **answer key**: we matched our decoded vertices and face
+  counts against them to *prove* the format was decoded correctly. None of their
+  data is redistributed here — it was used solely for verification.
+
+If you contributed any of the above and want different wording or attribution,
+please open an issue.
 
 ---
 

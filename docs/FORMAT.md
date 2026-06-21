@@ -52,10 +52,16 @@ Interleaved, **16 bytes per vertex**:
 
 | bytes | meaning |
 |---|---|
-| 0–3 | marker `00 0X 00 00` — a per-submesh id that **increments** (`0x100`, `0x200`, `0x300`, …). A change in this value marks a new submesh. |
+| 0–3 | tag = **skinning data** (bone index + weights). Read as byte/byte/int16. Often looks like `00 0X 00 00`, where `X` varies between submeshes because they bind to different bones — so it doubles as a rough submesh delimiter. |
 | 4–15 | position: 3 × float32 (X, Y, Z) |
 
-Convert to OBJ coordinates as **`(x, z, -y)`** (the engine is Z-up).
+Convert to OBJ coordinates as **`(x, z, -y)`** (the engine is Z-up). Vertices are
+in node-local space and are transformed by their node's matrix in the original
+engine; for single-node objects this is identity.
+
+> The skinning meaning of the tag was confirmed by decompiling the UniViewer UDG
+> plugin (see the README acknowledgments): its vertex loop reads
+> `byte, byte, int16, float×3` then feeds the tag into `boneIndex0-3` / `weight0-3`.
 
 ### Face records
 A flat list of per-triangle records.
@@ -64,11 +70,20 @@ A flat list of per-triangle records.
   (into that submesh's vertex buffer). A fourth uint32 repeats the third.
 - A uint32 length/count field follows; the remaining bytes are per-corner strip/UV
   data (not yet decoded).
-- On simple models this count is `9` and records are a fixed **48 bytes**. On
-  complex models the count varies (e.g. `264`), so the record length varies — these
-  need the header descriptor to bound them correctly (TODO).
+- On simple models this count is `9` and records are a fixed **48 bytes**.
 
 Implemented in [`../bnc_to_obj.py`](../bnc_to_obj.py).
+
+### Two face formats
+A survey of all 947 models shows **two** geometry encodings:
+
+- **Simple (~252 models)** — the 48-byte triangle records above. Handled today.
+- **Complex (~441 models)** — geometry is reached through the node's **4 section
+  pointers** (uint64s right after the descriptor): `ptr0` = vertex buffer,
+  `ptr2` = a **triangle-strip index buffer** (uint16, with `0xffff` restart
+  markers), `ptr3` = float data (UVs/normals). This matches the UniViewer plugin's
+  parser, which reads the index section as `uint16, uint16, byte` elements. Decoding
+  is ~90% there (validated on `barricade`); exact strip params are being finalized.
 
 ---
 
