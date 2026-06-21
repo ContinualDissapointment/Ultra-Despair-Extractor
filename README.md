@@ -120,9 +120,12 @@ This is a checkpoint, not a finished product. Known gaps:
 ## Roadmap
 
 1. ~~`.btx` texture decoding~~ — **done** (`btx_dec.py` / `btx_to_png.py`).
-2. **UV coordinates** — needed to actually apply the textures to the meshes
-   (they live in a separate float stream alongside normals).
-3. Material assignment — emit `.mtl` pairing each mesh to its texture(s).
+2. **UV coordinates** — *format cracked, parsing in progress.* UVs sit right after
+   the face records as **per-corner triplets** (3 `(u,v)` per face, in face order;
+   U direct, V flipped). Verified exact against a reference rip. The remaining work
+   is parsing the **irregular group padding** (interspersed with `256`/`128` dim
+   markers) so the triplets stay aligned across all faces.
+3. Material assignment — emit `.mtl` pairing each mesh to its `.btx`-derived PNG.
 4. Multi-*node* models (corpse piles / effects) and a full batch export.
 
 ---
