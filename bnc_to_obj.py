@@ -1,4 +1,11 @@
 """UDG PC .bnc -> .obj extractor.
+
+Handles the "simple" geometry format (a flat run of 48-byte face records), which
+covers a large share of props/characters (~267 clean in the first archive). The
+"complex" format (records interleaved with the vertex groups) is documented and
+validated in docs/FORMAT.md but its per-model parameter detection is still WIP, so
+those models may export partial/messy meshes for now.
+
 Format (reverse-engineered, validated vs The Models Resource ground truth):
   - optional 16-byte wrapper (magic ac 65 12 fe) then 'PSCa' data
   - vertex: 16-byte stride = [4-byte marker][3x float32 position]; axis -> (x, z, -y)

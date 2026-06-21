@@ -77,13 +77,25 @@ Implemented in [`../bnc_to_obj.py`](../bnc_to_obj.py).
 ### Two face formats
 A survey of all 947 models shows **two** geometry encodings:
 
-- **Simple (~252 models)** — the 48-byte triangle records above. Handled today.
-- **Complex (~441 models)** — geometry is reached through the node's **4 section
-  pointers** (uint64s right after the descriptor): `ptr0` = vertex buffer,
-  `ptr2` = a **triangle-strip index buffer** (uint16, with `0xffff` restart
-  markers), `ptr3` = float data (UVs/normals). This matches the UniViewer plugin's
-  parser, which reads the index section as `uint16, uint16, byte` elements. Decoding
-  is ~90% there (validated on `barricade`); exact strip params are being finalized.
+- **Simple (~252 models)** — the 48-byte triangle records above, in a flat run.
+  Handled today.
+- **Complex (~441 models)** — the **same 48-byte records**, but **interleaved with
+  the vertex groups** inside the geometry section. The geometry section is bounded
+  by the node's four `uint64` section pointers (right after the descriptor):
+  `ptr0` = geometry start, last ptr = UV/normal float data.
+
+**Complex layout (validated):** walk the geometry section, alternating
+**vertex-groups** and **face-record runs**, accumulating vertices into one global
+list; face indices are global across the groups. Each 48-byte record's first four
+uint32 are `a,b,c,d` → triangle `(a,b,c)`, plus a second triangle `(a,c,d)` when
+`d` is distinct (a quad). The per-vertex marker (`00 0X 00 00`, `X` = bone id) is
+`0` for static props and `0x100+` for skinned objects.
+
+This was validated end-to-end on the in-game **shield**: 32 verts / 52 faces, with
+the bounding box matching a known-good reference rip on **all three axes**. The
+remaining work is *parameter detection* — the vertex marker rule and the record's
+count field vary per model, so the decoder must derive them per file (ideally from
+the descriptor / submesh range table) rather than hardcode them.
 
 ---
 

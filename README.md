@@ -86,17 +86,28 @@ decoding — none of that data is included here).
 
 ---
 
+## Current coverage
+
+Models come in two geometry encodings (see [`docs/FORMAT.md`](docs/FORMAT.md)):
+
+- **Simple format** — `bnc_to_obj.py` handles these today. On the first archive's
+  character/prop set (`a1`, 947 models), **~267 export cleanly** right now, plus
+  more across the other archives. Run it and check the result in Blender.
+- **Complex format** — the structure is now **cracked and validated**: a complex
+  test model (the in-game shield) extracts to a mesh whose bounding box matches a
+  known-good reference rip on **all three axes**. What's left is making the decoder
+  pick the per-model parameters automatically so this rolls out to the remaining
+  ~441 models — that's in progress.
+
 ## Limitations
 
 This is a checkpoint, not a finished product. Known gaps:
 
-- **Multi-submesh models** (most full characters) don't fully export yet. The
-  vertex side is handled (each submesh is tagged by an incrementing marker), but
-  some models use **variable-length face records** that the current decoder doesn't
-  parse — so face counts come out short. The fix (reading the header's per-submesh
-  descriptor) is the next milestone.
-- **No UVs / textures yet.** Positions and faces only. Texture coordinates and the
-  `.btx` / GXT texture pipeline are planned.
+- **~Half of models (the "complex" format)** don't auto-export yet. The format is
+  understood and validated on a test model; generalizing the per-model parameter
+  detection is the active work.
+- **No UVs / textures yet.** Positions and faces only. UVs (we know where they
+  live) and the `.btx` / GXT texture pipeline are planned.
 - **PC build only** for the model converter. The Vita `.bnc` is a different (older)
   variant; `cpk_extract.py` already unpacks Vita archives, but `bnc_to_obj.py`
   currently targets the PC layout.
@@ -105,8 +116,8 @@ This is a checkpoint, not a finished product. Known gaps:
 
 ## Roadmap
 
-1. Decode the `PSCa` header descriptor → exact per-submesh vertex/face regions
-   (fixes multi-submesh).
+1. Generalize the complex-format decoder (per-model parameter detection) → the
+   remaining ~441 models.
 2. UV coordinates.
 3. `.btx` / GXT texture extraction and material assignment.
 4. Batch-export the whole roster.
