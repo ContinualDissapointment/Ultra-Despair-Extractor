@@ -49,50 +49,46 @@ def find_vertex_runs(d):
             o += 4
     return runs
 
-def find_face_chunks(d):
-    """contiguous runs of 48-byte face records (u32@+16 == 9)."""
-    chunks = []
+def find_faces(d, nv):
+    """48-byte face records, found by the universal 0xffff strip-restart signature.
+    First four uint32 = a,b,c,d -> triangle (a,b,c), plus (a,c,d) when d is a
+    distinct valid index (a quad). Indices are global into the concatenated buffer."""
+    faces = []
     o = 0
     N = len(d)
     while o + 48 <= N:
-        if u32(d, o+16) == 9:
-            start = o; tris = []
-            while o + 48 <= N and u32(d, o+16) == 9:
-                a, b, c = u32(d, o), u32(d, o+4), u32(d, o+8)
-                tris.append((a, b, c)); o += 48
-            chunks.append((start, tris))
+        a, b, c, e = u32(d, o), u32(d, o+4), u32(d, o+8), u32(d, o+12)
+        if max(a, b, c, e) < 60000 and len({a, b, c}) == 3 and b'\xff\xff' in d[o+16:o+48]:
+            if a < nv and b < nv and c < nv:
+                faces.append((a, b, c))
+                if e not in (a, b, c) and e < nv:
+                    faces.append((a, c, e))
+            o += 48
         else:
             o += 4
-    return chunks
+    return faces
 
 def extract(path, out_path, scale=100.0):
     d = psca_blob(open(path, 'rb').read())
-    vruns = find_vertex_runs(d)
-    fchunks = find_face_chunks(d)
-    # pair each face chunk with the nearest preceding vertex run
+    # one global vertex buffer = every vertex run concatenated in file order;
+    # face records index globally into it (not per-run, which was the old bug).
     verts_all = []
-    faces_all = []
-    for cstart, tris in fchunks:
-        vrun = max((v for v in vruns if v[0] < cstart), key=lambda v: v[0], default=None)
-        if vrun is None:
-            continue
-        vstart, vcount = vrun
-        maxidx = max(max(t) for t in tris) if tris else -1
-        if maxidx >= vcount:
-            continue                                 # faces point past this vertex run -> unreliable chunk, skip
-        base = len(verts_all)
+    for vstart, vcount in sorted(find_vertex_runs(d)):
         for i in range(vcount):
             o = vstart + i*16
             verts_all.append((f32(d, o+4), f32(d, o+12), -f32(d, o+8)))
-        for a, b, c in tris:
-            if len({a, b, c}) == 3:
-                faces_all.append((a+base, b+base, c+base))
+    nv = len(verts_all)
+    faces_all = [t for t in find_faces(d, nv)
+                 if all(all(_finite(c) for c in verts_all[i]) for i in t)]
     with open(out_path, 'w') as fp:
         for x, y, z in verts_all:
             fp.write(f"v {x*scale:.5f} {y*scale:.5f} {z*scale:.5f}\n")
         for a, b, c in faces_all:
             fp.write(f"f {a+1} {b+1} {c+1}\n")
-    return len(verts_all), len(faces_all), len(fchunks)
+    return len(verts_all), len(faces_all), 0
+
+def _finite(x):
+    return x == x and -1e9 < x < 1e9   # reject NaN/inf/garbage
 
 if __name__ == '__main__':
     src = sys.argv[1]
