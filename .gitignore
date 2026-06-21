@@ -1,0 +1,30 @@
+# Never commit game assets or extracted/derived data — bring your own.
+*.cpk
+*.bnc
+*.bnp
+*.bnm
+*.btx
+*.bpe
+*.pak
+*.gxt
+*.dds
+*.obj
+*.mtl
+*.png
+*.jpg
+*.tga
+cpk_out/
+extracted/
+RevAssets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

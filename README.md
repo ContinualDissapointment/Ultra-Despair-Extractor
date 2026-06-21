@@ -1,0 +1,124 @@
+# Ultra-Despair-Extractor
+
+Tools for extracting 3D models (and the archives/textures around them) from
+**Danganronpa Another Episode: Ultra Despair Girls** — the PC (Steam) release and
+the original PS Vita build.
+
+These are **tools only**. They contain no game data. You must supply your own
+legally-owned copy of the game.
+
+> **Status:** early but real. This is, as far as we know, the first working native
+> model extractor for this game — previously the only route was ripping geometry
+> from the GPU (Ninja Ripper / RenderDoc). The vertex + face format is cracked and
+> validated against known-good reference models. Simple single-mesh objects export
+> cleanly today; complex multi-submesh characters are a work in progress (see
+> [Limitations](#limitations)).
+
+---
+
+## What's here
+
+| File | What it does |
+|---|---|
+| `cpk_extract.py` | Unpacks CRIWARE **`.cpk`** archives (incl. CRILAYLA-compressed entries). Works on PC `a1..a5.cpk` and Vita `dso_en.cpk`. |
+| `bnc_to_obj.py` | Converts a model **`.bnc`** file to a Wavefront **`.obj`** mesh. |
+| `docs/FORMAT.md` | The reverse-engineered file-format notes. |
+
+Pure Python 3, standard library only — no dependencies to install.
+
+---
+
+## Quick start (layman's version)
+
+You need: a copy of the game's files, and Python 3 installed.
+
+### 1. Find the game's archives
+On the **PC version**, inside the game folder you'll see `en/a1.cpk`, `a2.cpk` …
+`a5.cpk`. These are the big archives that hold everything.
+
+### 2. Unpack an archive
+
+```bash
+python cpk_extract.py "path/to/a1.cpk"
+```
+
+This creates a `cpk_out/` folder next to the script containing the game's files,
+including the 3D models, which end in **`.bnc`** (you'll find them in a `_chr`
+folder — characters, props, items).
+
+### 3. Turn a model into a `.obj`
+
+```bash
+python bnc_to_obj.py "cpk_out/en00_helmet.bnc" helmet.obj
+```
+
+It prints something like:
+```
+en00_helmet.bnc: 68 verts, 132 faces, 1 submesh-chunks -> helmet.obj
+```
+
+### 4. Open it
+Open `helmet.obj` in **Blender** (File → Import → Wavefront (.obj) — no plugin
+needed in Blender 4), or any 3D app.
+
+> **Tip:** models are tiny (a fraction of a unit). If you see "nothing," select the
+> object in the Outliner, hover the viewport, and press **Numpad `.`** (View → Frame
+> Selected) to zoom to it.
+
+---
+
+## How the format works (the short version)
+
+A `.bnc` is a `PSCa` container. Inside, each mesh is:
+
+- a **vertex buffer** — 16 bytes per vertex: a 4-byte tag followed by an XYZ
+  position as three 32-bit floats; and
+- a **face list** — one record per triangle whose first three 32-bit integers are
+  the three corner indices.
+
+Coordinates are converted to OBJ space as `(x, z, -y)`. Full details, including the
+dead ends we ruled out, are in [`docs/FORMAT.md`](docs/FORMAT.md).
+
+The format was reverse-engineered by cross-referencing the raw files against a
+handful of known-correct community rips (used purely as an "answer key" to verify
+decoding — none of that data is included here).
+
+---
+
+## Limitations
+
+This is a checkpoint, not a finished product. Known gaps:
+
+- **Multi-submesh models** (most full characters) don't fully export yet. The
+  vertex side is handled (each submesh is tagged by an incrementing marker), but
+  some models use **variable-length face records** that the current decoder doesn't
+  parse — so face counts come out short. The fix (reading the header's per-submesh
+  descriptor) is the next milestone.
+- **No UVs / textures yet.** Positions and faces only. Texture coordinates and the
+  `.btx` / GXT texture pipeline are planned.
+- **PC build only** for the model converter. The Vita `.bnc` is a different (older)
+  variant; `cpk_extract.py` already unpacks Vita archives, but `bnc_to_obj.py`
+  currently targets the PC layout.
+
+---
+
+## Roadmap
+
+1. Decode the `PSCa` header descriptor → exact per-submesh vertex/face regions
+   (fixes multi-submesh).
+2. UV coordinates.
+3. `.btx` / GXT texture extraction and material assignment.
+4. Batch-export the whole roster.
+
+---
+
+## Legal / ethical note
+
+This project ships **no copyrighted game content** — no models, textures, archives,
+or reference rips. It is for personal use, preservation, and interoperability with
+your own legally-acquired copy of the game. Danganronpa Another Episode: Ultra
+Despair Girls is © Spike Chunsoft. This project is unaffiliated.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
