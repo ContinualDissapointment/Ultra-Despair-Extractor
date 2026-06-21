@@ -16,7 +16,16 @@ Format (reverse-engineered, validated vs The Models Resource ground truth):
 import struct, sys, os
 
 def u32(d, o): return struct.unpack_from('<I', d, o)[0]
+def u16(d, o): return struct.unpack_from('<H', d, o)[0]
 def f32(d, o): return struct.unpack_from('<f', d, o)[0]
+
+def find_descriptor(d):
+    """First node descriptor: uint16 vcount, uint16 fcount, then 00 ff ff ff.
+    Its vcount is the authoritative vertex count for the (main) node."""
+    for o in range(0, len(d) - 8):
+        if d[o+4:o+8] == b'\x00\xff\xff\xff' and 0 < u16(d, o) < 8000 and 0 < u16(d, o+2) < 8000:
+            return o
+    return None
 
 def psca_blob(data):
     if data[:4] == b'\xac\x65\x12\xfe':       # wrapper -> skip 16 bytes
@@ -70,16 +79,20 @@ def find_faces(d, nv):
 
 def extract(path, out_path, scale=100.0):
     d = psca_blob(open(path, 'rb').read())
-    # one global vertex buffer = every vertex run concatenated in file order;
-    # face records index globally into it (not per-run, which was the old bug).
-    verts_all = []
-    for vstart, vcount in sorted(find_vertex_runs(d)):
-        for i in range(vcount):
-            o = vstart + i*16
-            verts_all.append((f32(d, o+4), f32(d, o+12), -f32(d, o+8)))
-    nv = len(verts_all)
-    faces_all = [t for t in find_faces(d, nv)
-                 if all(all(_finite(c) for c in verts_all[i]) for i in t)]
+    desc = find_descriptor(d)
+    runs = find_vertex_runs(d)
+    verts_all, faces_all = [], []
+    if desc is not None and runs:
+        # The (main node's) vertices are a single contiguous block of exactly
+        # `vcount` 16-byte records, starting at the first vertex run. Read exactly
+        # that many (the descriptor count is authoritative; the heuristic run
+        # splitter over/under-counts). Face records then index globally into it.
+        vcount = u16(d, desc)
+        geom = min(s for s, _ in runs)
+        verts_all = [(f32(d, geom+i*16+4), f32(d, geom+i*16+12), -f32(d, geom+i*16+8))
+                     for i in range(vcount)]
+        faces_all = [t for t in find_faces(d, vcount)
+                     if all(_finite_v(verts_all[i]) for i in t)]
     with open(out_path, 'w') as fp:
         for x, y, z in verts_all:
             fp.write(f"v {x*scale:.5f} {y*scale:.5f} {z*scale:.5f}\n")
@@ -87,8 +100,8 @@ def extract(path, out_path, scale=100.0):
             fp.write(f"f {a+1} {b+1} {c+1}\n")
     return len(verts_all), len(faces_all), 0
 
-def _finite(x):
-    return x == x and -1e9 < x < 1e9   # reject NaN/inf/garbage
+def _finite_v(v):
+    return all(c == c and -1e4 < c < 1e4 for c in v)   # reject NaN/inf/garbage verts
 
 if __name__ == '__main__':
     src = sys.argv[1]
