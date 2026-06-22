@@ -68,9 +68,23 @@ A flat list of per-triangle records.
 
 - The **first three uint32** of each record are the triangle's three vertex indices
   (into that submesh's vertex buffer). A fourth uint32 repeats the third.
-- A uint32 length/count field follows; the remaining bytes are per-corner strip/UV
-  data (not yet decoded).
+- A uint32 length/count field follows; the remaining bytes are a 9-`uint16` strip:
+  `[0, X, 1, 2, 65535, A, B, C, C]`.
 - On simple models this count is `9` and records are a fixed **48 bytes**.
+
+#### UV indices (confirmed on the helmet)
+The strip's **positions [5,6,7] = (A,B,C) are the per-corner UV indices** into a
+shared UV array. Confirmed by internal consistency: those columns yield 3
+conflicts/186 vs 94–121 for any other column choice. The UV array itself is *not*
+stored contiguously — it lives only as the per-face **40-byte UV records**
+(`[3 (u,v) float pairs][16 pad]`, with V file-flipped: `obj_v = 1 − file_v`),
+which sit after the face records. Look up `UV[strip[5..7]]` per corner — this is
+order-independent (no positional stride guessing).
+
+> **Caveat:** index consistency is clean within a single submesh, then resets.
+> Multi-submesh models segment the UV records + indices per submesh, so you must
+> split by submesh (the `00 0X 00 00` vertex marker / range table) before
+> resolving indices. That segmentation is the current WIP.
 
 Implemented in [`../bnc_to_obj.py`](../bnc_to_obj.py).
 
@@ -147,5 +161,7 @@ Decompressed payload:
 
 Implemented in [`../btx_dec.py`](../btx_dec.py) and [`../btx_to_png.py`](../btx_to_png.py).
 
-> Applying textures to meshes still needs **UV coordinates**, which live in a
-> separate float stream (alongside normals) and are not yet exported.
+> Applying textures needs **UV coordinates** — mechanism cracked (see
+> "UV indices" under §2): per-corner indices in the face-record strip into the
+> per-face 40-byte UV records. General export pends multi-submesh segmentation.
+> For hero models, a position-transfer from a reference rip gives perfect UVs now.
