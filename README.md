@@ -123,14 +123,15 @@ This is a checkpoint, not a finished product. Known gaps:
 ## Roadmap
 
 1. ~~`.btx` texture decoding~~ — **done** (`btx_dec.py` / `btx_to_png.py`).
-2. **UV coordinates** — *partially worked out, NOT working yet.* UVs appear to sit
-   after the face records as per-corner triplets (3 `(u,v)` per face; U direct,
-   V flipped) — this **matched a reference rip for the first faces only**. Our
-   parser then **drifts mid-model** because the inter-group padding (interspersed
-   with `256`/`128` markers) isn't parsed correctly. So UV output is currently
-   wrong past the first faces — do not rely on it.
-3. Material assignment — emit `.mtl` pairing each mesh to its `.btx`-derived PNG.
-4. Multi-*node* models (corpse piles / effects) and a full batch export.
+2. ~~**UV coordinates**~~ — **done for the simple format.** Each face record's
+   `strip[1]` (uint16 at +22) is its index `X` into a 40-byte-strided UV record
+   array; `recoff = base + X*40`, three per-corner `(u,v)`, V-flipped. Validated
+   132/132 against a reference rip and visually on a diverse set; covers ~237 of
+   the `a1` props. Complex/character models still export geometry-only.
+3. ~~Material assignment~~ — **done**; `bnc_to_obj.py` emits per-corner `vt` + an
+   `.mtl`. Pair textures via `<model>.btx` in the `_tex_pc` archive.
+4. **UVs for complex/character models** (interleaved face records) — next.
+5. Multi-*node* models (corpse piles / effects) and a full batch export.
 
 ---
 

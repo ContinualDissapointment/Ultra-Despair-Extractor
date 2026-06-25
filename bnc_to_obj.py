@@ -11,6 +11,10 @@ Format (reverse-engineered, validated vs The Models Resource ground truth):
   - vertex: 16-byte stride = [4-byte marker][3x float32 position]; axis -> (x, z, -y)
   - face record: 48 bytes; first 3 uint32 = triangle (indices into the submesh vtx buffer),
                  uint32 at +16 == 9 (count of trailing per-corner uint16 strip data)
+  - UVs: a 40-byte-strided record array starts right after the face records; each face's
+         record index is strip[1] (the uint16 at face_record+22), so recoff = base + X*40.
+         Each record holds 3 per-corner (u,v); V is flipped (obj_v = 1 - file_v). Shared
+         records (X reused) handle duplicate faces for free. Emits an .obj + .mtl.
   - geometry is laid out as submeshes: a vertex run followed by its 48-byte face records
 """
 import struct, sys, os
@@ -92,11 +96,53 @@ def find_faces(d, nv, vend, fcount):
             o += 4
     return out
 
+def _faces_end(d, vcount, vend):
+    """End of the contiguous 48-byte face-record block (start of UV data)."""
+    o = vend
+    while o + 48 <= len(d):
+        if _is_face_rec(d, o, vcount):
+            o += 48
+        else:
+            break
+    return o
+
+def _is_uv(d, o):
+    u, v = f32(d, o), f32(d, o+4)
+    return u == u and v == v and 0.0 <= u <= 1.001 and 0.0 <= v <= 1.001
+
+def _strict_uv(d, o):
+    # strictly-interior pair: rejects (0,0) padding, dim markers (256/128) and the
+    # 4-byte-misaligned (0, u) reads that would shift the record base.
+    u, v = f32(d, o), f32(d, o+4)
+    return u == u and v == v and 0.005 < u < 0.999 and 0.005 < v < 0.999
+
+def _find_uv_base(d, fend):
+    """The UV records are a 40-byte-strided array; find record 0 = first triplet
+    of three strictly-interior (u,v) pairs after the face records (skips the
+    (0,0)/dim header)."""
+    o = fend
+    while o + 24 <= len(d):
+        if _strict_uv(d, o) and _strict_uv(d, o+8) and _strict_uv(d, o+16):
+            return o
+        o += 4
+    return None
+
+def _rec_uvs(d, base, X):
+    """UVs for a face = the 40-byte record at base + X*40 (X = strip[1]).
+    Three per-corner (u,v); V is file-flipped to OBJ convention."""
+    o = base + X*40
+    if o + 24 > len(d):
+        return None
+    uv = [(f32(d, o+k*8), 1.0 - f32(d, o+k*8+4)) for k in range(3)]
+    if not all(_is_uv(d, o+k*8) for k in range(3)):
+        return None
+    return uv
+
 def extract(path, out_path, scale=100.0):
     d = psca_blob(open(path, 'rb').read())
     desc = find_descriptor(d)
     runs = find_vertex_runs(d)
-    verts_all, faces_all = [], []
+    verts_all, tris = [], []          # tris: ((a,b,c), uv3 | None)
     if desc is not None and runs:
         # The (main node's) vertices are a single contiguous block of exactly
         # `vcount` 16-byte records, starting at the first vertex run. Read exactly
@@ -105,17 +151,60 @@ def extract(path, out_path, scale=100.0):
         vcount = u16(d, desc)
         fcount = u16(d, desc+2)
         geom = min(s for s, _ in runs)
+        vcount = min(vcount, max(0, (len(d) - geom) // 16))   # never read past the buffer
         verts_all = [(f32(d, geom+i*16+4), f32(d, geom+i*16+12), -f32(d, geom+i*16+8))
                      for i in range(vcount)]
         vend = geom + vcount*16
-        faces_all = [t for t in find_faces(d, vcount, vend, fcount)
-                     if all(_finite_v(verts_all[i]) for i in t)]
+        # When the face records sit contiguously after the verts we can read each
+        # record's UV pointer (strip[1]) and emit per-corner UVs; otherwise fall
+        # back to geometry-only (complex format).
+        valid = sum(1 for i in range(fcount)
+                    if vend + i*48 + 48 <= len(d) and _is_face_rec(d, vend + i*48, vcount))
+        base = _find_uv_base(d, _faces_end(d, vcount, vend))
+        if fcount and valid / fcount > 0.9 and base is not None:
+            for i in range(fcount):
+                ro = vend + i*48
+                if ro + 48 > len(d):
+                    break
+                a, b, c, e = u32(d, ro), u32(d, ro+4), u32(d, ro+8), u32(d, ro+12)
+                if not (a < vcount and b < vcount and c < vcount and len({a, b, c}) == 3):
+                    continue
+                if not all(_finite_v(verts_all[i]) for i in (a, b, c)):
+                    continue
+                uv = _rec_uvs(d, base, u16(d, ro+22))
+                tris.append(((a, b, c), uv))
+                if e not in (a, b, c) and e < vcount and _finite_v(verts_all[e]):
+                    # quad's second triangle reuses the shared corners' UVs
+                    tris.append(((a, c, e), [uv[0], uv[2], uv[2]] if uv else None))
+        else:
+            for t in find_faces(d, vcount, vend, fcount):
+                if all(_finite_v(verts_all[i]) for i in t):
+                    tris.append((t, None))
+    has_uv = any(uv for _, uv in tris)
+    stem = os.path.splitext(os.path.basename(out_path))[0]
+    vt_lines, face_lines, vti = [], [], 1
+    for (a, b, c), uv in tris:
+        if uv:
+            for u, v in uv:
+                vt_lines.append(f"vt {u:.5f} {v:.5f}")
+            face_lines.append(f"f {a+1}/{vti} {b+1}/{vti+1} {c+1}/{vti+2}")
+            vti += 3
+        else:
+            face_lines.append(f"f {a+1} {b+1} {c+1}")
     with open(out_path, 'w') as fp:
+        if has_uv:
+            fp.write(f"mtllib {stem}.mtl\n")
         for x, y, z in verts_all:
             fp.write(f"v {x*scale:.5f} {y*scale:.5f} {z*scale:.5f}\n")
-        for a, b, c in faces_all:
-            fp.write(f"f {a+1} {b+1} {c+1}\n")
-    return len(verts_all), len(faces_all), 0
+        if vt_lines:
+            fp.write("\n".join(vt_lines) + "\n")
+        if has_uv:
+            fp.write("usemtl mat0\n")
+        fp.write("\n".join(face_lines) + "\n")
+    if has_uv:
+        with open(os.path.join(os.path.dirname(out_path), stem + ".mtl"), 'w') as mp:
+            mp.write(f"newmtl mat0\nmap_Kd {stem}.png\n")
+    return len(verts_all), len(tris), 1 if has_uv else 0
 
 def _finite_v(v):
     return all(c == c and -1e4 < c < 1e4 for c in v)   # reject NaN/inf/garbage verts
@@ -123,5 +212,5 @@ def _finite_v(v):
 if __name__ == '__main__':
     src = sys.argv[1]
     out = sys.argv[2] if len(sys.argv) > 2 else os.path.splitext(os.path.basename(src))[0] + '.obj'
-    nv, nf, ns = extract(src, out)
-    print(f"{os.path.basename(src)}: {nv} verts, {nf} faces, {ns} submesh-chunks -> {out}")
+    nv, nf, uv = extract(src, out)
+    print(f"{os.path.basename(src)}: {nv} verts, {nf} faces, UVs={'yes' if uv else 'no'} -> {out}")
