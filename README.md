@@ -139,12 +139,29 @@ sweep exports ~400 static models, most with UVs.
 - Correctness is confirmed by eye on a broad sample, not exhaustively — spot-check
   models you care about.
 
-## Limitations
+## Where it stands (known caveats)
 
+**Works cleanly** — single-node meshes: props, items, weapons, the human cast,
+the enemy Monokumas and simpler bosses, the Monokuma Kids, and character **faces**
+(geometry, UVs, textures, posed). A full `a1` sweep ≈ 400 models.
+
+**Known caveats (active WIP):**
+
+- **Hair & deep bone-chains** — meshes whose bones form *chains* (e.g. Toko's
+  braids, 58 bones) need **hierarchy composition** that isn't implemented yet, so
+  they come out spiky. Flat-hierarchy parts (faces) pose fine; chains don't. (Some
+  hairs also have no per-mesh texture and use a shared atlas.)
+- **Multi-node models** — some bosses, effects, and corpse-pile meshes (e.g.
+  `enb03`, `ev10_deads`) are built from many separate node blocks. The extractor
+  currently reads only the first node and **mangles** these. Multi-node assembly is
+  not implemented yet.
+- **Texture matching is best-effort** — ~70% of UV'd models auto-pair a texture;
+  the rest are genuinely textureless (UI/effects/map props) or need a manual pairing.
+- **Multi-texture meshes** get one `.mtl`; a few that span atlases need manual splits.
 - **Vita build:** `cpk_extract.py` unpacks Vita archives, but `bnc_to_obj.py`
   targets the PC `.bnc` layout (Vita is an older, more compact variant).
-- **Multi-texture characters:** each mesh gets one `.mtl`/texture; a few meshes that
-  span multiple texture atlases may need manual material splitting.
+
+When in doubt, spot-check the specific models you care about.
 
 ---
 
@@ -155,10 +172,12 @@ sweep exports ~400 static models, most with UVs.
    is its index `X` into a 40-byte-strided UV record array; `recoff = base + X*40`,
    three per-corner `(u,v)`, V-flipped. Validated 132/132 vs a reference rip.
 3. ~~Material assignment~~ — **done**; emits per-corner `vt` + an `.mtl`.
-4. ~~Skinned characters~~ — **done.** Auto-locates the bone bind-position array and
-   applies translation skinning; auto-locates the complex-format face block.
-5. **Polish:** smarter texture-name matching for batch export; multi-material meshes;
-   the Vita `.bnc` variant.
+4. ~~Skinned characters & faces~~ — **done** for single-node meshes. Auto-locates the
+   bind-position array (spine world-array for bodies, `header[0x30]` for flat parts)
+   and applies translation skinning; auto-locates the complex-format face block.
+5. **Next frontiers:** crack the **node-table hierarchy** encoding → (a) compose
+   **hair/bone-chains**, (b) drive **multi-node** assembly. Plus: smarter texture
+   matching, multi-material meshes, and the Vita `.bnc` variant.
 
 ---
 
