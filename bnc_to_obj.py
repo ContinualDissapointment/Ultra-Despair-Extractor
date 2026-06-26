@@ -74,26 +74,56 @@ def _is_face_rec(d, o, nv):
     a, b, c, e = u32(d, o), u32(d, o+4), u32(d, o+8), u32(d, o+12)
     return (max(a, b, c) < nv and len({a, b, c}) == 3 and b'\xff\xff' in d[o+16:o+48])
 
-def find_faces(d, nv, vend, fcount):
-    """Faces are `fcount` 48-byte records. When they sit contiguously right after
-    the vertex block (vend), read exactly those -- this avoids false-positive
-    records elsewhere in the file. Otherwise fall back to a global scan for the
-    universal 0xffff strip-restart signature. Each record's first four uint32 are
-    a,b,c,d -> triangle (a,b,c) plus (a,c,d) when d is a distinct quad corner."""
+def _face_block(d, nv, vend, fcount):
+    """Offset where the `fcount` 48-byte face records begin. Simple models keep
+    them contiguously at `vend`; complex/skinned models store them as a separate
+    block elsewhere (located as the longest run of valid records, plus any
+    small-gap preceding run). Returns None if no records found."""
     N = len(d)
     valid = sum(1 for i in range(fcount)
                 if vend + i*48 + 48 <= N and _is_face_rec(d, vend + i*48, nv))
-    out = []
-    if fcount and valid / fcount > 0.9:                 # contiguous block after the verts
-        for i in range(fcount):
-            _rec_to_tris(d, vend + i*48, nv, out)
-        return out
-    o = 0                                               # global fallback
+    if fcount and _is_face_rec(d, vend, nv) and valid / fcount > 0.9:
+        return vend                                     # truly contiguous at vend
+    runs, o = [], vend
     while o + 48 <= N:
-        if _is_face_rec(d, o, nv) and max(u32(d, o), u32(d, o+4), u32(d, o+8), u32(d, o+12)) < 60000:
-            _rec_to_tris(d, o, nv, out); o += 48
+        if _is_face_rec(d, o, nv):
+            s = o; c = 0
+            while o + 48 <= N and _is_face_rec(d, o, nv):
+                c += 1; o += 48
+            if c >= 8:
+                runs.append((s, c))
         else:
             o += 4
+    if not runs:
+        return None
+    start = max(runs, key=lambda r: r[1])[0]
+    changed = True
+    while changed:                                      # chain in small-gap preceding runs
+        changed = False
+        for s, c in runs:
+            if 0 < start - (s + c*48) <= 64:
+                start = s; changed = True
+    return start
+
+def _iter_face_recs(d, nv, start, fcount):
+    """Yield the offset of each of `fcount` 48-byte face records from `start`,
+    tolerating small gaps between sub-blocks."""
+    N, o, n = len(d), start, 0
+    while o + 48 <= N and n < fcount:
+        if _is_face_rec(d, o, nv):
+            yield o; o += 48; n += 1
+        else:
+            o += 4
+
+def find_faces(d, nv, vend, fcount):
+    """Triangles for `fcount` face records. Each record's first four uint32 are
+    a,b,c,d -> triangle (a,b,c) plus (a,c,d) when d is a distinct quad corner."""
+    out = []
+    start = _face_block(d, nv, vend, fcount)
+    if start is None:
+        return out
+    for ro in _iter_face_recs(d, nv, start, fcount):
+        _rec_to_tris(d, ro, nv, out)
     return out
 
 def _faces_end(d, vcount, vend):
@@ -199,21 +229,17 @@ def extract(path, out_path, scale=100.0):
             verts_all = [(f32(d, geom+i*16+4), f32(d, geom+i*16+12), -f32(d, geom+i*16+8))
                          for i in range(vcount)]
         vend = geom + vcount*16
-        # When the face records sit contiguously after the verts we can read each
-        # record's UV pointer (strip[1]) and emit per-corner UVs; otherwise fall
-        # back to geometry-only (complex format).
-        valid = sum(1 for i in range(fcount)
-                    if vend + i*48 + 48 <= len(d) and _is_face_rec(d, vend + i*48, vcount))
-        base = _find_uv_base(d, _faces_end(d, vcount, vend))
-        if fcount and valid / fcount > 0.9 and base is not None:
-            for i in range(fcount):
-                ro = vend + i*48
-                if ro + 48 > len(d):
-                    break
+        # Locate the face-record block (vend for simple models, a separate block
+        # for complex/skinned ones). Read each record's UV pointer (strip[1]) for
+        # per-corner UVs; the UV records follow the face block.
+        fstart = _face_block(d, vcount, vend, fcount)
+        recs = list(_iter_face_recs(d, vcount, fstart, fcount)) if fstart is not None else []
+        base = _find_uv_base(d, (recs[-1] + 48) if recs else vend)
+        if recs and base is not None:
+            for ro in recs:
                 a, b, c, e = u32(d, ro), u32(d, ro+4), u32(d, ro+8), u32(d, ro+12)
-                if not (a < vcount and b < vcount and c < vcount and len({a, b, c}) == 3):
-                    continue
-                if not all(_finite_v(verts_all[i]) for i in (a, b, c)):
+                if not (a < vcount and b < vcount and c < vcount and len({a, b, c}) == 3
+                        and all(_finite_v(verts_all[i]) for i in (a, b, c))):
                     continue
                 uv = _rec_uvs(d, base, u16(d, ro+22))
                 tris.append(((a, b, c), uv))
