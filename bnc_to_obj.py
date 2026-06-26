@@ -17,7 +17,7 @@ Format (reverse-engineered, validated vs The Models Resource ground truth):
          records (X reused) handle duplicate faces for free. Emits an .obj + .mtl.
   - geometry is laid out as submeshes: a vertex run followed by its 48-byte face records
 """
-import struct, sys, os
+import struct, sys, os, re
 
 def u32(d, o): return struct.unpack_from('<I', d, o)[0]
 def u16(d, o): return struct.unpack_from('<H', d, o)[0]
@@ -138,6 +138,37 @@ def _rec_uvs(d, base, X):
         return None
     return uv
 
+def _find_bone_base(d, vlimit):
+    """Skinned characters store the vertices in bone-LOCAL space; to un-fold them
+    each vertex is offset by its bone's world bind-position. Those positions are a
+    Vector3[] array — locate it by the spine signature: 6 consecutive entries
+    (WAIST..HEAD) with strictly increasing height (file Z) and centered on X.
+    Returns the array offset, or None for non-skinned props."""
+    m = re.search(rb'NULL\x00', d)
+    limit = min(m.start() if m else vlimit, vlimit)
+    o = 0x40
+    while o + 6*12 <= limit:
+        zs = [f32(d, o+k*12+8) for k in range(6)]
+        xs = [f32(d, o+k*12) for k in range(6)]
+        if (all(v == v for v in zs+xs)
+                and all(zs[k+1] > zs[k] + 0.02 for k in range(5))
+                and (zs[5] - zs[0]) > 0.35
+                and all(abs(x) < 0.12 for x in xs) and zs[0] > 0.05):
+            return o
+        o += 4
+    return None
+
+def _bone_positions(d, base):
+    """Read the contiguous Vector3 bind-position array starting at `base`."""
+    out, o = [], base
+    while o + 12 <= len(d):
+        x, y, z = f32(d, o), f32(d, o+4), f32(d, o+8)
+        if x == x and y == y and z == z and max(abs(x), abs(y), abs(z)) < 8:
+            out.append((x, y, z)); o += 12
+        else:
+            break
+    return out
+
 def extract(path, out_path, scale=100.0):
     d = psca_blob(open(path, 'rb').read())
     desc = find_descriptor(d)
@@ -152,8 +183,21 @@ def extract(path, out_path, scale=100.0):
         fcount = u16(d, desc+2)
         geom = min(s for s, _ in runs)
         vcount = min(vcount, max(0, (len(d) - geom) // 16))   # never read past the buffer
-        verts_all = [(f32(d, geom+i*16+4), f32(d, geom+i*16+12), -f32(d, geom+i*16+8))
-                     for i in range(vcount)]
+        # Skinned characters: offset each vertex by its bone's bind position (the
+        # vertex marker's 2nd byte is the bone index; the array skips nodes 0,1 =
+        # NULL/RESERVE, hence index-2). Props have no skeleton -> read positions as-is.
+        bbase = _find_bone_base(d, geom)
+        bones = _bone_positions(d, bbase) if bbase is not None else None
+        if bones:
+            verts_all = []
+            for i in range(vcount):
+                vo = geom + i*16
+                bi = ((u32(d, vo) >> 8) & 0xff) - 2
+                bx, by, bz = bones[bi] if 0 <= bi < len(bones) else (0.0, 0.0, 0.0)
+                verts_all.append((f32(d, vo+4)+bx, f32(d, vo+12)+bz, -(f32(d, vo+8)+by)))
+        else:
+            verts_all = [(f32(d, geom+i*16+4), f32(d, geom+i*16+12), -f32(d, geom+i*16+8))
+                         for i in range(vcount)]
         vend = geom + vcount*16
         # When the face records sit contiguously after the verts we can read each
         # record's UV pointer (strip[1]) and emit per-corner UVs; otherwise fall
