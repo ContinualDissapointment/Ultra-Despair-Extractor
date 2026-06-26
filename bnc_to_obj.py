@@ -199,6 +199,27 @@ def _bone_positions(d, base):
             break
     return out
 
+def _bone_positions_h30(d):
+    """Bind-position array for flat-hierarchy skinned parts (faces, hair, etc.):
+    a 16-byte `[x, y, z, 1]` array pointed to by header[0x30], one entry per node
+    (count at header[0x10]). For these parts local space == world (head at origin),
+    so the positions apply directly. Returns None if the pointer looks invalid."""
+    if len(d) < 0x34:
+        return None
+    off = u32(d, 0x30); n = u32(d, 0x10)
+    if not (0x40 <= off < len(d)) or not (0 < n < 4096):
+        return None
+    out = []
+    for i in range(n):
+        o = off + i*16
+        if o + 12 > len(d):
+            break
+        x, y, z = f32(d, o), f32(d, o+4), f32(d, o+8)
+        if not (x == x and y == y and z == z and max(abs(x), abs(y), abs(z)) < 50):
+            break
+        out.append((x, y, z))
+    return out if len(out) >= 2 else None
+
 def extract(path, out_path, scale=100.0):
     d = psca_blob(open(path, 'rb').read())
     desc = find_descriptor(d)
@@ -213,16 +234,24 @@ def extract(path, out_path, scale=100.0):
         fcount = u16(d, desc+2)
         geom = min(s for s, _ in runs)
         vcount = min(vcount, max(0, (len(d) - geom) // 16))   # never read past the buffer
-        # Skinned characters: offset each vertex by its bone's bind position (the
-        # vertex marker's 2nd byte is the bone index; the array skips nodes 0,1 =
-        # NULL/RESERVE, hence index-2). Props have no skeleton -> read positions as-is.
+        # Skinned meshes store vertices in bone-local space; offset each vertex by
+        # its bone's bind position (marker's 2nd byte = bone index). Bodies have a
+        # spine-shaped world-position array; flat-hierarchy parts (faces, hair) use
+        # the header[0x30] array instead. Index = marker - min(markers) (the array
+        # starts at the lowest-marker bone). Props (1 bone) read positions as-is.
+        markers = set((u32(d, geom+i*16) >> 8) & 0xff for i in range(vcount))
         bbase = _find_bone_base(d, geom)
-        bones = _bone_positions(d, bbase) if bbase is not None else None
+        if bbase is not None:                       # body: pre-composed spine world array
+            bones, off = _bone_positions(d, bbase), 2     # array starts at WAIST (marker 2)
+        elif len(markers) > 1:                      # face/hair/accessory: flat-hierarchy array
+            bones, off = _bone_positions_h30(d), min(markers)
+        else:
+            bones, off = None, 0
         if bones:
             verts_all = []
             for i in range(vcount):
                 vo = geom + i*16
-                bi = ((u32(d, vo) >> 8) & 0xff) - 2
+                bi = ((u32(d, vo) >> 8) & 0xff) - off
                 bx, by, bz = bones[bi] if 0 <= bi < len(bones) else (0.0, 0.0, 0.0)
                 verts_all.append((f32(d, vo+4)+bx, f32(d, vo+12)+bz, -(f32(d, vo+8)+by)))
         else:
