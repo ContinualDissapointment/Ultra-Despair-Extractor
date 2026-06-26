@@ -7,15 +7,23 @@ the original PS Vita build.
 These are **tools only**. They contain no game data. You must supply your own
 legally-owned copy of the game.
 
-> **Status:** working end-to-end. We are **not the first** to look at this — earlier
-> community work (a model-viewer plugin, forum format threads, and GPU rips) blazed
-> the trail; see [Prior art & acknowledgments](#prior-art--acknowledgments). What's
-> new here is an **open, scriptable native extractor for the PC release** whose
-> format model is documented and validated against known-good reference models.
-> It now exports **props, the human cast, and the Monokuma Kids** as **posed,
-> UV-mapped, textured** `.obj`s — geometry, UVs, skeletal bind-pose skinning, and
-> `.mtl`/texture pairing. **Tip:** extract the **static** `.bnc` files, not the
-> `_anm`/`_evt_anm` animation variants (those remap UVs and will look mis-textured).
+> **Status: active WIP — usable, not finished.** We are **not the first** to look at
+> this — earlier community work (a model-viewer plugin, forum format threads, and GPU
+> rips) blazed the trail; see [Prior art & acknowledgments](#prior-art--acknowledgments).
+> What's new here is an **open, scriptable native extractor for the PC release** whose
+> format model is documented and validated against known-good references.
+>
+> **Many models extract cleanly** today — props, items, weapons, the human cast, the
+> enemy Monokumas and bosses, and the Monokuma Kids — as **posed, UV-mapped, textured**
+> `.obj`s (geometry, UVs, skeletal bind-pose skinning, and `.mtl`/texture pairing). A
+> full `a1` sweep produces ~400 models, most with UVs and the majority textured.
+>
+> **But it is not complete.** Some complex or multi-part models still come out
+> imperfect (seams, sub-meshes, or unmatched textures), the Vita layout isn't handled,
+> and edge cases remain — this is being actively worked on. Treat output as
+> "good for most, check the ones you care about." **Tip:** extract the **static**
+> `.bnc` files, not the `_anm`/`_evt` animation variants (those remap UVs and look
+> mis-textured).
 
 ---
 
@@ -24,9 +32,10 @@ legally-owned copy of the game.
 | File | What it does |
 |---|---|
 | `cpk_extract.py` | Unpacks CRIWARE **`.cpk`** archives (incl. CRILAYLA-compressed entries). Works on PC `a1..a5.cpk` and Vita `dso_en.cpk`. |
-| `bnc_to_obj.py` | Converts a model **`.bnc`** file to a Wavefront **`.obj`** mesh. |
+| `bnc_to_obj.py` | Converts a model **`.bnc`** file to a Wavefront **`.obj`** mesh (posed + UV-mapped + `.mtl`). |
 | `btx_dec.py` | Decompresses a **`.btx`** texture container (PC → DDS, Vita → GXT). |
 | `btx_to_png.py` | Converts a **`.btx`** texture to **PNG** (PC DDS path; needs Pillow). |
+| `batch_export.py` | Sweeps a `_chr` folder: every static mesh → textured `.obj`, auto-pairing textures. One-command full dump. |
 | `docs/FORMAT.md` | The reverse-engineered file-format notes. |
 
 The model/archive tools are pure Python 3 stdlib. `btx_to_png.py`'s DDS→PNG step
@@ -70,6 +79,19 @@ needed in Blender 4), or any 3D app.
 > **Tip:** models are tiny (a fraction of a unit). If you see "nothing," select the
 > object in the Outliner, hover the viewport, and press **Numpad `.`** (View → Frame
 > Selected) to zoom to it.
+
+### 5. Or export *everything* at once
+
+```bash
+python batch_export.py --chr "cpk_out/.../data/_chr" \
+                       --tex "path/to/unpacked_game" \
+                       --out GameModels
+```
+
+Sweeps the whole `_chr` folder, writes a posed, UV-mapped `.obj` + `.mtl` for every
+static mesh, and auto-pairs/decodes each texture (`.png`) it can find under `--tex`
+(searched recursively across archives; needs Pillow). Skips the `_anm`/`_evt`/`_shadow`
+variants automatically.
 
 ---
 
