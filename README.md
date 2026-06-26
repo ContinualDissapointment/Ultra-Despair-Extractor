@@ -7,13 +7,15 @@ the original PS Vita build.
 These are **tools only**. They contain no game data. You must supply your own
 legally-owned copy of the game.
 
-> **Status:** early but real. We are **not the first** to look at this — earlier
+> **Status:** working end-to-end. We are **not the first** to look at this — earlier
 > community work (a model-viewer plugin, forum format threads, and GPU rips) blazed
 > the trail; see [Prior art & acknowledgments](#prior-art--acknowledgments). What's
 > new here is an **open, scriptable native extractor for the PC release** whose
 > format model is documented and validated against known-good reference models.
-> Simple single-mesh objects export cleanly today; complex multi-submesh characters
-> are a work in progress (see [Limitations](#limitations)).
+> It now exports **props, the human cast, and the Monokuma Kids** as **posed,
+> UV-mapped, textured** `.obj`s — geometry, UVs, skeletal bind-pose skinning, and
+> `.mtl`/texture pairing. **Tip:** extract the **static** `.bnc` files, not the
+> `_anm`/`_evt_anm` animation variants (those remap UVs and will look mis-textured).
 
 ---
 
@@ -91,47 +93,50 @@ decoding — none of that data is included here).
 
 ## Current coverage
 
-Models come in two geometry encodings (see [`docs/FORMAT.md`](docs/FORMAT.md)):
+`bnc_to_obj.py` handles both geometry encodings (see [`docs/FORMAT.md`](docs/FORMAT.md))
+and auto-detects which to use:
 
-- **Simple format** — `bnc_to_obj.py` handles these. Several hundred `a1`
-  character/prop models produce geometry that passes an automated edge-sanity check.
-  **That check is not a correctness guarantee.** A sample (e.g. the helmet, shield,
-  wings) were confirmed correct in Blender / against reference rips; the full set
-  has *not* been visually verified — treat counts as "looks plausible," not "known
-  good," and check each model you use.
-- **Complex format** — appears worked out, but only spot-confirmed: a few models
-  decode correctly, including the **shield** (32v / 52f, bounding box matching a
-  reference rip on all three axes) and a couple others confirmed by eye. Whether
-  it's correct across the whole roster is **not yet confirmed**.
+- **Simple format** (props, items, weapons) — face records sit right after the
+  vertices. UVs validated **132/132** against a reference rip (the helmet) and
+  confirmed by eye across a diverse set.
+- **Complex / skinned format** (characters) — vertices in one block, face records
+  in a separate block (auto-located), and vertices stored in **bone-local space**.
+  The extractor finds the bone bind-position array (spine signature) and applies
+  **translation skinning** to un-fold the model into its bind pose. Confirmed by eye
+  on the human cast (`ev*`) and Monokuma Kids (`kks*`) — posed, UV-mapped, textured.
+
+Props stay as-is (no skeleton); characters are posed automatically. A full `a1`
+sweep exports ~400 static models, most with UVs.
+
+## Usage notes
+
+- **Use the static `.bnc` files, not the `_anm` / `_evt_anm` variants.** The
+  animation files remap UVs and will look mis-textured. (Skip `_shadow` too.)
+- A full character = its **body + hair + face** static meshes, each with its own
+  texture (`<meshname>.btx` in the `_tex_pc` archive; convert with `btx_to_png.py`).
+- Correctness is confirmed by eye on a broad sample, not exhaustively — spot-check
+  models you care about.
 
 ## Limitations
 
-This is a checkpoint, not a finished product. Known gaps:
-
-- **Correctness is only spot-checked.** Only a handful of models are confirmed
-  against ground truth / by eye; the rest are unverified.
-- **No UVs applied yet.** Geometry exports untextured. `.btx` textures *do* decode
-  to PNG (`btx_to_png.py`), but mapping them needs UVs, which are **not** working
-  yet (see roadmap).
-- **Multi-*node* models** (corpse piles, effects) don't decode cleanly.
-- **PC build only** for the model converter. The Vita `.bnc` is a different (older)
-  variant; `cpk_extract.py` already unpacks Vita archives, but `bnc_to_obj.py`
-  currently targets the PC layout.
+- **Vita build:** `cpk_extract.py` unpacks Vita archives, but `bnc_to_obj.py`
+  targets the PC `.bnc` layout (Vita is an older, more compact variant).
+- **Multi-texture characters:** each mesh gets one `.mtl`/texture; a few meshes that
+  span multiple texture atlases may need manual material splitting.
 
 ---
 
 ## Roadmap
 
 1. ~~`.btx` texture decoding~~ — **done** (`btx_dec.py` / `btx_to_png.py`).
-2. ~~**UV coordinates**~~ — **done for the simple format.** Each face record's
-   `strip[1]` (uint16 at +22) is its index `X` into a 40-byte-strided UV record
-   array; `recoff = base + X*40`, three per-corner `(u,v)`, V-flipped. Validated
-   132/132 against a reference rip and visually on a diverse set; covers ~237 of
-   the `a1` props. Complex/character models still export geometry-only.
-3. ~~Material assignment~~ — **done**; `bnc_to_obj.py` emits per-corner `vt` + an
-   `.mtl`. Pair textures via `<model>.btx` in the `_tex_pc` archive.
-4. **UVs for complex/character models** (interleaved face records) — next.
-5. Multi-*node* models (corpse piles / effects) and a full batch export.
+2. ~~**UV coordinates**~~ — **done.** Each face record's `strip[1]` (uint16 at +22)
+   is its index `X` into a 40-byte-strided UV record array; `recoff = base + X*40`,
+   three per-corner `(u,v)`, V-flipped. Validated 132/132 vs a reference rip.
+3. ~~Material assignment~~ — **done**; emits per-corner `vt` + an `.mtl`.
+4. ~~Skinned characters~~ — **done.** Auto-locates the bone bind-position array and
+   applies translation skinning; auto-locates the complex-format face block.
+5. **Polish:** smarter texture-name matching for batch export; multi-material meshes;
+   the Vita `.bnc` variant.
 
 ---
 
